@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Vacation Notify</string>
+    <string name="button_update">update</string>
+    <string name="hint_username">username</string>
+    <string name="hint_password">password</string>
+    <string name="hint_url">url</string>
+    <string name="button_delete">Delete</string>
+</resources>
