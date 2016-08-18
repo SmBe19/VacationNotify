@@ -2,8 +2,10 @@ package com.smeanox.apps.vacationnotify;
 
 import android.content.SharedPreferences;
 import android.os.AsyncTask;
+import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.util.Base64;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -12,9 +14,13 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
+
+import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
@@ -164,8 +170,8 @@ public class MainActivity extends AppCompatActivity {
 				}
 				messages.clear();
 				String[] lines = response.split("\n");
-				for(String line : lines) {
-					String[] parts = line.split(" ");
+				for (String line : lines) {
+					String[] parts = line.split(" ", 3);
 					if (parts.length != 3) {
 						System.out.println("Line has wrong length: " + line);
 						continue;
@@ -175,6 +181,12 @@ public class MainActivity extends AppCompatActivity {
 				isUpdating = false;
 				createMessageEntries();
 				saveSettings();
+				Toast.makeText(MainActivity.this, "updated", Toast.LENGTH_SHORT).show();
+			}
+		}, new RequestCallback() {
+			@Override
+			public void run(String response) {
+				isUpdating = false;
 			}
 		});
 	}
@@ -188,30 +200,52 @@ public class MainActivity extends AppCompatActivity {
 			public void run(String response) {
 				if (response == null) {
 					System.out.println("Delete: Response was null");
-				} else if("done\n".equals(response)){
+				} else if ("done\n".equals(response)) {
 					((ViewGroup) button.getParent().getParent()).removeView((View) button.getParent());
+					Toast.makeText(MainActivity.this, "deleted", Toast.LENGTH_SHORT).show();
 				}
+				isDeleting = false;
+			}
+		}, new RequestCallback() {
+			@Override
+			public void run(String response) {
 				isDeleting = false;
 			}
 		});
 	}
 
-	private void makeRequestAsync(final String endpoint, final String args, final RequestCallback callback){
+	private void makeRequestAsync(final String endpoint, final String args, final RequestCallback callback, final RequestCallback callbackError){
 		AsyncTask.execute(new Runnable() {
 			@Override
 			public void run() {
-				final String response = makeRequest(endpoint, args);
-				runOnUiThread(new Runnable() {
-					@Override
-					public void run() {
-						callback.run(response);
-					}
-				});
+				final String response;
+				try {
+					response = makeRequest(endpoint, args);
+					runOnUiThread(new Runnable() {
+						@Override
+						public void run() {
+							callback.run(response);
+						}
+					});
+				} catch (final IOException e) {
+					runOnUiThread(new Runnable() {
+						@Override
+						public void run() {
+							if (callbackError != null) {
+								callbackError.run(e.getMessage());
+							}
+							AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
+							builder.setTitle("Error").setMessage(e.getMessage()).setIcon(android.R.drawable.ic_dialog_alert);
+							builder.setPositiveButton("k", null);
+							builder.create().show();
+						}
+					});
+				}
 			}
 		});
 	}
 
-	private String makeRequest(String endpoint, String args) {
+	private String makeRequest(String endpoint, String args) throws IOException {
 		try {
 			URL connUrl;
 			if (args != null && args.length() > 0) {
@@ -219,26 +253,51 @@ public class MainActivity extends AppCompatActivity {
 			} else {
 				connUrl = new URL(url + endpoint);
 			}
+
+			String authString = "";
+			if (username.length() > 0) {
+				authString = username + ":" + password;
+				byte[] authEncBytes = Base64.encode(authString.getBytes(), Base64.DEFAULT);
+				authString = new String(authEncBytes);
+			}
+
 			HttpURLConnection conn = (HttpURLConnection) connUrl.openConnection();
 			conn.setRequestMethod("GET");
 			conn.setRequestProperty("User-Agent", "VacationNotify on Android");
+			if (authString.length() > 0) {
+				conn.setRequestProperty("Authorization", "Basic " + authString);
+			}
 
 			int responseCode = conn.getResponseCode();
-			System.out.println(endpoint + ": " + responseCode);
-			BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-			String inputLine;
-			StringBuilder response = new StringBuilder();
-			while ((inputLine = in.readLine()) != null) {
-				response.append(inputLine);
-				response.append("\n");
+
+			if(responseCode == 200) {
+				String response = readInputStream(conn.getInputStream());
+				System.out.println(response);
+				return response;
+			} else {
+				String error = readInputStream(conn.getErrorStream());
+				System.out.println(responseCode + " " + error);
+				throw new IOException(responseCode + " " + error);
 			}
-			in.close();
-			System.out.println(response.toString());
-			return response.toString();
 		} catch (IOException e) {
 			e.printStackTrace();
+			throw new IOException(e);
 		}
-		return null;
+	}
+
+	private String readInputStream(InputStream inputStream) throws IOException {
+		if (inputStream == null) {
+			return "";
+		}
+		BufferedReader in = new BufferedReader(new InputStreamReader(inputStream));
+		String inputLine;
+		StringBuilder response = new StringBuilder();
+		while ((inputLine = in.readLine()) != null) {
+			response.append(inputLine);
+			response.append("\n");
+		}
+		in.close();
+		return response.toString();
 	}
 
 	public void onUpdateSettings(View view) {

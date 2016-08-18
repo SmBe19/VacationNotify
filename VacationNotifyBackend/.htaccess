@@ -1,0 +1,4 @@
+AuthType Basic
+AuthName "VacationNotify"
+AuthUserFile %REPLACE_ME%
+Require valid-user
